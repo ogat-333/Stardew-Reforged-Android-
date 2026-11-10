@@ -51,9 +51,10 @@ internal static class StardewApkTool
             //play store
             if (IsGameFromPlayStore)
             {
-                var version = CurrentPackageInfo.VersionName;
+                // Play Store normally installs two APK splits (arm64 + content).
+                // Single-APK distributions keep assemblies and Content/ in base.apk.
                 var splitApks = CurrentPackageInfo.ApplicationInfo?.SplitSourceDirs;
-                return splitApks?.Count == 2;
+                return splitApks == null || splitApks.Length == 0 || splitApks.Length == 2;
             }
 
             //samsung
@@ -73,9 +74,16 @@ internal static class StardewApkTool
                     return null;
 
                 if (IsGameFromPlayStore)
-                    return CurrentPackageInfo.ApplicationInfo.SplitSourceDirs?.FirstOrDefault(path => path.Contains("split_config.arm64"));
+                {
+                    var splitApks = CurrentPackageInfo.ApplicationInfo?.SplitSourceDirs;
+                    var arm64Split = splitApks?.FirstOrDefault(path =>
+                        path.Contains("split_config.arm64", StringComparison.OrdinalIgnoreCase));
 
-                // Samsung: assemblies are in the base APK
+                    // Single-APK installs keep the assembly store in base.apk.
+                    return arm64Split ?? BaseApkPath;
+                }
+
+                // Samsung: assemblies are in the base APK.
                 return BaseApkPath;
             }
             catch (Exception ex)
@@ -95,11 +103,18 @@ internal static class StardewApkTool
                 if (CurrentPackageInfo == null)
                     return null;
 
-                //play store
+                // Play Store installs may keep Content/ in split_content.apk.
                 if (IsGameFromPlayStore)
-                    return CurrentPackageInfo.ApplicationInfo.SplitSourceDirs?.First(path => path.Contains("split_content"));
+                {
+                    var splitApks = CurrentPackageInfo.ApplicationInfo?.SplitSourceDirs;
+                    var contentSplit = splitApks?.FirstOrDefault(path =>
+                        path.Contains("split_content", StringComparison.OrdinalIgnoreCase));
 
-                //samsung
+                    // Single-APK installs keep Content/ in base.apk.
+                    return contentSplit ?? BaseApkPath;
+                }
+
+                // Samsung: Content/ is in the base APK.
                 return BaseApkPath;
             }
             catch (Exception ex)
