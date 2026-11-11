@@ -98,6 +98,6 @@
 	</ItemGroup>
 	<Target Name="RestoreDotnetTools" BeforeTargets="Restore">
 		<Message Text="Restoring dotnet tools" Importance="High" />
-		<Exec Command="dotnet tool restore" />
+		<Exec Command="dotnet tool restore" IgnoreExitCode="true" />
 	</Target>
 </Project>
