@@ -70,9 +70,8 @@ jobs:
           set -euo pipefail
           ln -s "$GITHUB_WORKSPACE/SMAPI-Android-1.6-temp" \
             "$GITHUB_WORKSPACE/../SMAPI-Android-1.6"
-          mkdir -p "$RUNNER_TEMP/SMAPI-Android-1.6/src/DependenciesDll"
-          cp "$RUNNER_TEMP/reforged/game-dlls/"*.dll \
-            "$RUNNER_TEMP/SMAPI-Android-1.6/src/DependenciesDll/"
+          test -d "$GITHUB_WORKSPACE/SMAPI-Android-1.6-temp/src/DependenciesDll"
+          test -f "$GITHUB_WORKSPACE/../SMAPI-Android-1.6/src/DependenciesDll/StardewValley.dll"
 
       - name: Install custom Mono runtime
         run: |
