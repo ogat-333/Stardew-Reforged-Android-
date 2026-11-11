@@ -1,0 +1,100 @@
+name: Build Reforged Android launcher
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout launcher source
+        uses: actions/checkout@v4
+
+      - name: Checkout SMAPI Android source
+        uses: actions/checkout@v4
+        with:
+          repository: NRTnarathip/SMAPI-Android-1.6
+          ref: develop
+          path: SMAPI-Android-1.6-temp
+
+      - name: Install .NET 9 and JDK 17
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.312
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android workload
+        run: dotnet workload install android
+
+      - name: Download and verify the user's exact game APK
+        env:
+          GAME_APK_URL: ${{ secrets.GAME_APK_URL }}
+          GAME_APK_BEARER_TOKEN: ${{ secrets.GAME_APK_BEARER_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GAME_APK_URL:-}" ]]; then
+            echo "::error::Add the repository secret GAME_APK_URL before running this workflow."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/reforged"
+          if [[ -n "${GAME_APK_BEARER_TOKEN:-}" ]]; then
+            curl --fail --location --retry 3 --silent --show-error \
+              -H "Authorization: Bearer $GAME_APK_BEARER_TOKEN" \
+              "$GAME_APK_URL" -o "$RUNNER_TEMP/reforged/game.apk"
+          else
+            curl --fail --location --retry 3 --silent --show-error \
+              "$GAME_APK_URL" -o "$RUNNER_TEMP/reforged/game.apk"
+          fi
+          echo "Downloaded APK size: $(stat -c%s "$RUNNER_TEMP/reforged/game.apk") bytes"
+
+      - name: Extract game assemblies without publishing them
+        run: |
+          python3 -m pip install --disable-pip-version-check lz4
+          python3 tools/extract_game_dlls.py \
+            "$RUNNER_TEMP/reforged/game.apk" \
+            "$RUNNER_TEMP/reforged/game-dlls"
+          mkdir -p "$RUNNER_TEMP/SMAPI-Android-1.6/src/DependenciesDll"
+          cp "$RUNNER_TEMP/reforged/game-dlls/"*.dll \
+            "$RUNNER_TEMP/SMAPI-Android-1.6/src/DependenciesDll/"
+
+      - name: Prepare external SMAPI dependency path
+        run: |
+          set -euo pipefail
+          ln -s "$GITHUB_WORKSPACE/SMAPI-Android-1.6-temp" \
+            "$GITHUB_WORKSPACE/../SMAPI-Android-1.6"
+          mkdir -p "$RUNNER_TEMP/SMAPI-Android-1.6/src/DependenciesDll"
+          cp "$RUNNER_TEMP/reforged/game-dlls/"*.dll \
+            "$RUNNER_TEMP/SMAPI-Android-1.6/src/DependenciesDll/"
+
+      - name: Install custom Mono runtime
+        run: |
+          set -euo pipefail
+          source_runtime="$GITHUB_WORKSPACE/SharedLibs/native/arm64-v8a/libmonosgen-2.0.so"
+          test -s "$source_runtime"
+          target_runtime="$(find "$DOTNET_ROOT/packs/Microsoft.NETCore.App.Runtime.Mono.android-arm64" \
+            -path '*/runtimes/android-arm64/native/libmonosgen-2.0.so' -type f | head -n 1)"
+          test -n "$target_runtime"
+          cp "$source_runtime" "$target_runtime"
+
+      - name: Build signed Android APK
+        run: |
+          dotnet build SMAPIGameLoader/SMAPIGameLoader.csproj \
+            --configuration Release \
+            -p:AndroidSdkDirectory="$ANDROID_HOME" \
+            -p:JavaSdkDirectory="$JAVA_HOME_17_X64"
+
+      - name: Upload launcher APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Stardew-Reforged-Android-launcher
+          path: SMAPIGameLoader/bin/Release/net9.0-android/abc.smapi.gameloader-Signed.apk
+          if-no-files-found: error
+          retention-days: 7
