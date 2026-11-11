@@ -2,6 +2,12 @@ name: Build Reforged Android launcher
 
 on:
   workflow_dispatch:
+    inputs:
+      game_apk_url:
+        description: "Direct Dropbox download URL for the verified Stardew Valley APK"
+        required: true
+        type: string
+        default: "https://www.dropbox.com/scl/fi/aabkqi2ci7hx1penwbf7y/3013-stardew-valley-ru-1.6.15.3-Wildroid.ru.apk?rlkey=l4tuqr2jrncbt90z91u5l92jp&dl=1"
 
 permissions:
   contents: read
@@ -36,12 +42,12 @@ jobs:
 
       - name: Download and verify the user's exact game APK
         env:
-          GAME_APK_URL: ${{ secrets.GAME_APK_URL }}
+          GAME_APK_URL: ${{ inputs.game_apk_url || secrets.GAME_APK_URL }}
           GAME_APK_BEARER_TOKEN: ${{ secrets.GAME_APK_BEARER_TOKEN }}
         run: |
           set -euo pipefail
           if [[ -z "${GAME_APK_URL:-}" ]]; then
-            echo "::error::Add the repository secret GAME_APK_URL before running this workflow."
+            echo "::error::Provide game_apk_url when starting the workflow or add GAME_APK_URL as a repository secret."
             exit 1
           fi
           mkdir -p "$RUNNER_TEMP/reforged"
