@@ -61,9 +61,9 @@ jobs:
           python3 tools/extract_game_dlls.py \
             "$RUNNER_TEMP/reforged/game.apk" \
             "$RUNNER_TEMP/reforged/game-dlls"
-          mkdir -p "$RUNNER_TEMP/SMAPI-Android-1.6/src/DependenciesDll"
+          mkdir -p "$GITHUB_WORKSPACE/SMAPI-Android-1.6-temp/src/DependenciesDll"
           cp "$RUNNER_TEMP/reforged/game-dlls/"*.dll \
-            "$RUNNER_TEMP/SMAPI-Android-1.6/src/DependenciesDll/"
+            "$GITHUB_WORKSPACE/SMAPI-Android-1.6-temp/src/DependenciesDll/"
 
       - name: Prepare external SMAPI dependency path
         run: |
