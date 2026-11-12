@@ -21,7 +21,7 @@ internal static class SMAPIInstaller
     {
         try
         {
-            if (IsInstalled is false)
+            if (!File.Exists(GetInstallFilePath))
             {
                 return 0;
             }
@@ -43,7 +43,7 @@ internal static class SMAPIInstaller
     {
         try
         {
-            if (IsInstalled is false)
+            if (!File.Exists(GetInstallFilePath))
             {
                 return new Version(0, 0, 0, 0);
             }
@@ -175,21 +175,29 @@ internal static class SMAPIInstaller
 
             InstallSMAPIFromZipFile(pick.FullPath);
 
-            DialogTool.Show("Successfully Install SMAPI",
-                "done installed SMAPI from zip file: " + pick.FileName);
+            if (!IsInstalled)
+                throw new InvalidDataException("SMAPI verification failed: DLL or version/build metadata is missing or invalid.");
+
             OnInstalledSMAPI?.Invoke();
+            DialogTool.Show("SMAPI installed and verified",
+                $"Installed SMAPI {GetCurrentVersion()} (Build {GetBuildCode()}) from {pick.FileName}.");
 
         }
         catch (Exception ex)
         {
-            ToastNotifyTool.Notify(ex.ToString());
-            Console.WriteLine(ex);
+            ErrorDialogTool.Show(ex);
+            Console.WriteLine("SMAPI installation failed: " + ex);
         }
     }
     static void InstallSMAPIFromZipFile(string smapiZipFilePath)
     {
         using (var zip = ZipFile.OpenRead(smapiZipFilePath))
         {
+            var mainAssemblyEntry = zip.Entries.FirstOrDefault(entry =>
+                string.Equals(Path.GetFileName(entry.FullName), StardewModdingAPIFileName, StringComparison.OrdinalIgnoreCase));
+            if (mainAssemblyEntry is null)
+                throw new InvalidDataException("This ZIP does not contain StardewModdingAPI.dll. Select the Android SMAPI ZIP.");
+
             var stardewDir = GameAssemblyManager.AssembliesDirPath;
             foreach (var entry in zip.Entries)
             {
@@ -203,10 +211,18 @@ internal static class SMAPIInstaller
                 var rootDirName = directoryNames[0];
                 var newEntryFileName = entry.FullName.Remove(0, rootDirName.Length + 1);
                 var destExtractFilePath = Path.Combine(stardewDir, newEntryFileName);
-                ZipFileTool.Extract(entry, destExtractFilePath);
+                if (!string.IsNullOrEmpty(newEntryFileName))
+                    ZipFileTool.Extract(entry, destExtractFilePath);
             }
         }
 
+        if (!File.Exists(GetInstallFilePath))
+            throw new InvalidDataException("SMAPI DLL was not copied into the game's assembly directory.");
+
+        var version = GetCurrentVersion();
+        var buildCode = GetBuildCode();
+        if (version <= new Version(0, 0, 0, 0) || buildCode <= 0)
+            throw new InvalidDataException("Version/build metadata could not be read. Installation is not considered successful.");
     }
     public static void UninstallSMAPI()
     {
@@ -217,5 +233,5 @@ internal static class SMAPIInstaller
 
     public const string StardewModdingAPIFileName = "StardewModdingAPI.dll";
     public static string GetInstallFilePath => Path.Combine(GameAssemblyManager.AssembliesDirPath, StardewModdingAPIFileName);
-    public static bool IsInstalled => File.Exists(GetInstallFilePath);
+    public static bool IsInstalled => File.Exists(GetInstallFilePath) && GetCurrentVersion() > new Version(0, 0, 0, 0) && GetBuildCode() > 0;
 }
