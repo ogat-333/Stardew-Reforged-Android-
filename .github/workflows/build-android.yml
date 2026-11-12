@@ -99,7 +99,7 @@ jobs:
             -p:AndroidSdkDirectory="$ANDROID_HOME" \
             -p:JavaSdkDirectory="$JAVA_HOME_17_X64"
 
-          SMAPI_BIN="$SMAPI_ROOT/src/SMAPI/bin/Arm64/Android Release"
+          export SMAPI_BIN="$SMAPI_ROOT/src/SMAPI/bin/Arm64/Android Release"
           test -s "$SMAPI_BIN/StardewModdingAPI.dll"
 
           python3 - <<'PY'
