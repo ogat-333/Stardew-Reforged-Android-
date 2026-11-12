@@ -85,8 +85,8 @@ jobs:
 
       - name: Build and package patched Android SMAPI ZIP
         env:
-          SMAPI_ROOT: \${{ github.workspace }}/SMAPI-Android-1.6-temp
-          SMAPI_PACKAGE_DIR: \${{ runner.temp }}/reforged/smapi-package
+          SMAPI_ROOT: ${{ github.workspace }}/SMAPI-Android-1.6-temp
+          SMAPI_PACKAGE_DIR: ${{ runner.temp }}/reforged/smapi-package
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/reforged/game" "$SMAPI_PACKAGE_DIR"
@@ -183,5 +183,13 @@ jobs:
         with:
           name: Stardew-Reforged-Android-launcher
           path: SMAPIGameLoader/bin/Release/net9.0-android/abc.smapi.gameloader-Signed.apk
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload patched SMAPI ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Stardew-Reforged-Android-patched-SMAPI
+          path: ${{ runner.temp }}/reforged/smapi-package/SMAPI-Android-4.3.2.5-Reforged.zip
           if-no-files-found: error
           retention-days: 7
