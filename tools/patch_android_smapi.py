@@ -125,7 +125,7 @@ android_text = android_matches[0].read_text(encoding="utf-8")
 # The constructor patch also accesses private game fields and crashes on 1.6.15.3.
 # Disable the explicit compatibility patch call; leave unrelated Android patches intact.
 call_pattern = re.compile(
-    r"(?m)^[ \\t]*MobileFarmChooserPatcher\\.Patch\\(harmony\\);[ \\t]*\\r?\\n"
+    r"(?m)^[ \t]*MobileFarmChooserPatcher\.Patch\(harmony\);[ \t]*\r?\n"
 )
 if len(call_pattern.findall(android_text)) != 1:
     raise SystemExit("Expected exactly one explicit MobileFarmChooserPatcher.Patch(harmony) call")
