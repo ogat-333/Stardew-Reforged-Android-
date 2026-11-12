@@ -7,7 +7,7 @@ on:
         description: "Direct Dropbox download URL for the verified Stardew Valley APK"
         required: true
         type: string
-        default: "https://www.dropbox.com/scl/fi/aabkqi2ci7hx1penwbf7y/3013-stardew-valley-ru-1.6.15.3-Wildroid.ru.apk?rlkey=l4tuqr2jrncbt90z91u5l92jp&dl=1"
+        default: "https://www.dropbox.com/scl/fi/aabkqi2ci7hx1penwbf7y/3013-stardew-valley-ru-1.6.15.3-Wildroid.ru.apk?rlkey=l4tuqr2jrncbt90z91u5l92jp&st=h1fqz7pi&dl=1"
 
 permissions:
   contents: read
