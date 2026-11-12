@@ -130,3 +130,19 @@ print("Removed the complete Prefix_draw and Postfix_draw methods and their Harmo
 print("Verified class-level Harmony marker is absent and receiveLeftClick remains.")
 print("Verified no other MobileFarmChooser.draw Harmony patch exists in the SMAPI source tree.")
 print("Verified explicit constructor/option-button compatibility patches remain enabled.")
+
+# The upstream post-build hook is a Windows batch script (ADB deployment).
+# Disable that local-device deployment hook on Linux CI while keeping it on Windows.
+csproj = root / "src/SMAPI/SMAPI.csproj"
+if not csproj.is_file():
+    raise SystemExit(f"Expected SMAPI project file at {csproj}")
+csproj_text = csproj.read_text(encoding="utf-8-sig")
+target_open = '<Target Name="PostBuild" AfterTargets="PostBuildEvent">'
+if csproj_text.count(target_open) != 1:
+    raise SystemExit("Expected exactly one SMAPI PostBuild target")
+csproj_text = csproj_text.replace(
+    target_open,
+    '<Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="\'$(OS)\' == \'Windows_NT\'">',
+)
+csproj.write_text(csproj_text, encoding="utf-8")
+print("Disabled the Windows-only ADB post-build hook for Linux CI.")
