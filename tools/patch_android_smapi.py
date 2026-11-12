@@ -34,7 +34,7 @@ kept = []
 disabled = 0
 for line in android_lines:
     if "MobileFarmChooserPatcher.Patch(harmony);" in line:
-        kept.append("        // Disabled: optional MobileFarmChooser detours crash Android Mono at startup.\\n")
+        kept.append("        // Disabled: optional MobileFarmChooser detours crash Android Mono at startup." + chr(10))
         disabled += 1
     else:
         kept.append(line)
