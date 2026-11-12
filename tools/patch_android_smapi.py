@@ -122,14 +122,23 @@ android_matches = list(root.rglob("AndroidPatcher.cs"))
 if len(android_matches) != 1:
     raise SystemExit(f"Expected exactly one AndroidPatcher.cs, found {len(android_matches)}")
 android_text = android_matches[0].read_text(encoding="utf-8")
-if "MobileFarmChooserPatcher.Patch(harmony);" not in android_text:
-    raise SystemExit("Safe explicit MobileFarmChooserPatcher.Patch(harmony) call is missing")
+# The constructor patch also accesses private game fields and crashes on 1.6.15.3.
+# Disable the explicit compatibility patch call; leave unrelated Android patches intact.
+call_pattern = re.compile(
+    r"(?m)^[ \\t]*MobileFarmChooserPatcher\\.Patch\\(harmony\\);[ \\t]*\\r?\\n"
+)
+if len(call_pattern.findall(android_text)) != 1:
+    raise SystemExit("Expected exactly one explicit MobileFarmChooserPatcher.Patch(harmony) call")
+android_text = call_pattern.sub("", android_text)
+android_matches[0].write_text(android_text, encoding="utf-8")
+if "MobileFarmChooserPatcher.Patch(harmony);" in android_text:
+    raise SystemExit("Unsafe MobileFarmChooserPatcher call remains enabled")
 
 print(f"Patched {patch_file.relative_to(root)}.")
 print("Removed the complete Prefix_draw and Postfix_draw methods and their Harmony attributes.")
 print("Verified class-level Harmony marker is absent and receiveLeftClick remains.")
 print("Verified no other MobileFarmChooser.draw Harmony patch exists in the SMAPI source tree.")
-print("Verified explicit constructor/option-button compatibility patches remain enabled.")
+print("Verified unsafe MobileFarmChooserPatcher constructor/option-button patch call is disabled.")
 
 # The upstream post-build hook is a Windows batch script (ADB deployment).
 # Disable that local-device deployment hook on Linux CI while keeping it on Windows.
