@@ -141,10 +141,16 @@ public class SMAPIInfoCard : CardView
         _status.SetBackgroundColor(Color.ParseColor(installed ? "#2E7D32" : "#C62828"));
 
         {
-            var buildDateTimeOffset = DateTimeOffset.FromUnixTimeSeconds(SMAPIInstaller.GetBuildCode());
-            var localDateTimeOffset = buildDateTimeOffset.ToLocalTime();
-            var localDateTimeString = localDateTimeOffset.ToString("HH:mm:ss dd/MM/yyyy");
-            _buildDate.Text = $"{localDateTimeString} (d/m/y)";
+            var buildCode = SMAPIInstaller.GetBuildCode();
+            if (buildCode > 0)
+            {
+                var buildDateTimeOffset = DateTimeOffset.FromUnixTimeSeconds(buildCode);
+                _buildDate.Text = $"{buildDateTimeOffset.ToLocalTime():HH:mm:ss dd/MM/yyyy} (d/m/y)";
+            }
+            else
+            {
+                _buildDate.Text = "Not available";
+            }
         }
 
 
