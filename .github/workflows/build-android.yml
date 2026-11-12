@@ -83,6 +83,84 @@ jobs:
           test -d "$GITHUB_WORKSPACE/SMAPI-Android-1.6-temp/src/DependenciesDll"
           test -f "$GITHUB_WORKSPACE/../SMAPI-Android-1.6/src/DependenciesDll/StardewValley.dll"
 
+      - name: Build and package patched Android SMAPI ZIP
+        env:
+          SMAPI_ROOT: \${{ github.workspace }}/SMAPI-Android-1.6-temp
+          SMAPI_PACKAGE_DIR: \${{ runner.temp }}/reforged/smapi-package
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/reforged/game" "$SMAPI_PACKAGE_DIR"
+
+          dotnet build "$SMAPI_ROOT/src/SMAPI/SMAPI.csproj" \
+            --configuration "Android Release" \
+            -p:Platform=ARM64 \
+            "-p:GamePath=$RUNNER_TEMP/reforged/game" \
+            -p:CopyToGameFolder=false \
+            -p:AndroidSdkDirectory="$ANDROID_HOME" \
+            -p:JavaSdkDirectory="$JAVA_HOME_17_X64"
+
+          SMAPI_BIN="$SMAPI_ROOT/src/SMAPI/bin/Arm64/Android Release"
+          test -s "$SMAPI_BIN/StardewModdingAPI.dll"
+
+          python3 - <<'PY'
+          import os
+          import shutil
+          import zipfile
+          from pathlib import Path
+
+          repo = Path(os.environ["SMAPI_ROOT"])
+          bin_dir = Path(os.environ["SMAPI_BIN"])
+          out_dir = Path(os.environ["SMAPI_PACKAGE_DIR"])
+          package_name = "SMAPI-Android-4.3.2.5-Reforged"
+          stage = out_dir / package_name
+          if stage.exists():
+              shutil.rmtree(stage)
+          stage.mkdir(parents=True)
+
+          dependencies = repo / "src/PackSMAPIZip/dependencies.txt"
+          names = [
+              line.strip()
+              for line in dependencies.read_text(encoding="utf-8").splitlines()
+              if line.strip()
+          ]
+          missing = [name for name in names if not (bin_dir / name).is_file()]
+          if missing:
+              raise SystemExit("Missing SMAPI package dependencies: " + ", ".join(missing))
+
+          for name in names:
+              shutil.copy2(bin_dir / name, stage / name)
+
+          internal = stage / "smapi-internal"
+          internal.mkdir()
+          shutil.copytree(bin_dir / "i18n", internal / "i18n")
+          for source, destination in (
+              ("SMAPI.config.json", "config.json"),
+              ("SMAPI.blacklist.json", "blacklist.json"),
+              ("SMAPI.metadata.json", "metadata.json"),
+          ):
+              source_path = bin_dir / source
+              if not source_path.is_file():
+                  raise SystemExit(f"Missing SMAPI package file: {source_path}")
+              shutil.copy2(source_path, internal / destination)
+
+          zip_path = out_dir / f"{package_name}.zip"
+          if zip_path.exists():
+              zip_path.unlink()
+          with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+              for path in sorted(stage.rglob("*")):
+                  if path.is_file():
+                      archive.write(path, path.relative_to(out_dir))
+
+          size = zip_path.stat().st_size
+          if size > 10 * 1024 * 1024:
+              raise SystemExit(f"Patched SMAPI ZIP exceeds the Android launcher's 10 MB limit: {size} bytes")
+          with zipfile.ZipFile(zip_path) as archive:
+              entries = archive.namelist()
+              if not any(name.endswith("/StardewModdingAPI.dll") for name in entries):
+                  raise SystemExit("Patched SMAPI ZIP is missing StardewModdingAPI.dll")
+          print(f"Created {zip_path.name} ({size} bytes)")
+          print(f"Package contents: {len(entries)} files")
+          PY
       - name: Install custom Mono runtime
         run: |
           set -euo pipefail
