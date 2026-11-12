@@ -13,8 +13,13 @@ if len(matches) != 1:
 patch_file = matches[0]
 lines = patch_file.read_text(encoding="utf-8").splitlines(keepends=True)
 removed = False
-for i, line in enumerate(lines[:-1]):
-    if line.strip() == "[HarmonyPatch]" and "class MobileFarmChooserPatcher" in lines[i + 1]:
+for i, line in enumerate(lines):
+    if line.strip() != "[HarmonyPatch]":
+        continue
+    j = i + 1
+    while j < len(lines) and not lines[j].strip():
+        j += 1
+    if j < len(lines) and "class MobileFarmChooserPatcher" in lines[j]:
         del lines[i]
         removed = True
         break
