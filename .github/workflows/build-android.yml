@@ -1,6 +1,9 @@
 name: Build Reforged Android launcher
 
 on:
+  push:
+    branches:
+      - master
   workflow_dispatch:
     inputs:
       game_apk_url:
