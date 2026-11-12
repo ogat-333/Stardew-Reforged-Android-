@@ -26,11 +26,7 @@ internal static class SMAPIInstaller
                 return 0;
             }
 
-            using var stream = File.OpenRead(GetInstallFilePath);
-            var assembly = Mono.Cecil.AssemblyDefinition.ReadAssembly(stream);
-            var SMAPIAndroidBuild = assembly.MainModule.Types.Single(t => t.FullName == "StardewModdingAPI.Mobile.SMAPIAndroidBuild");
-            string buildString = SMAPIAndroidBuild.Fields.Single(p => p.Name == "BuildCode").Constant as string;
-            return long.Parse(buildString);
+            return ReadBuildCodeFromAssembly(GetInstallFilePath);
         }
         catch (Exception ex)
         {
@@ -48,12 +44,7 @@ internal static class SMAPIInstaller
                 return new Version(0, 0, 0, 0);
             }
 
-            using var stream = File.OpenRead(GetInstallFilePath);
-            var assembly = Mono.Cecil.AssemblyDefinition.ReadAssembly(stream);
-            var constantsType = assembly.MainModule.Types.Single(t => t.FullName == "StardewModdingAPI.EarlyConstants");
-            var RawApiVersionForAndroidField = constantsType.Fields.Single(p => p.Name == "RawApiVersionForAndroid");
-            string version = RawApiVersionForAndroidField.Constant as string;
-            return new Version(version);
+            return ReadVersionFromAssembly(GetInstallFilePath);
         }
         catch
         {
@@ -188,41 +179,141 @@ internal static class SMAPIInstaller
             ErrorDialogTool.Show(ex);
             Console.WriteLine("SMAPI installation failed: " + ex);
         }
+        finally
+        {
+            OnInstalledSMAPI?.Invoke();
+            OnInstalledSMAPI = null;
+        }
     }
     static void InstallSMAPIFromZipFile(string smapiZipFilePath)
     {
-        using (var zip = ZipFile.OpenRead(smapiZipFilePath))
+        var stardewDir = GameAssemblyManager.AssembliesDirPath;
+        Directory.CreateDirectory(stardewDir);
+
+        var stagingDir = Path.Combine(stardewDir, ".smapi-install-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(stagingDir);
+
+        try
         {
-            var mainAssemblyEntry = zip.Entries.FirstOrDefault(entry =>
-                string.Equals(Path.GetFileName(entry.FullName), StardewModdingAPIFileName, StringComparison.OrdinalIgnoreCase));
-            if (mainAssemblyEntry is null)
-                throw new InvalidDataException("This ZIP does not contain StardewModdingAPI.dll. Select the Android SMAPI ZIP.");
-
-            var stardewDir = GameAssemblyManager.AssembliesDirPath;
-            foreach (var entry in zip.Entries)
+            using (var zip = ZipFile.OpenRead(smapiZipFilePath))
             {
-                //remove first dir name
-                //example
-                //from 'SMAPI-4.1.10.2/Hello.dll'
-                //to 'Hello.dll'
+                var fileEntries = zip.Entries
+                    .Where(entry => !string.IsNullOrEmpty(entry.FullName) && !entry.FullName.EndsWith("/", StringComparison.Ordinal))
+                    .ToList();
 
-                string entryDirName = Path.GetDirectoryName(entry.FullName);
-                string[] directoryNames = entryDirName.Split(Path.DirectorySeparatorChar);
-                var rootDirName = directoryNames[0];
-                var newEntryFileName = entry.FullName.Remove(0, rootDirName.Length + 1);
-                var destExtractFilePath = Path.Combine(stardewDir, newEntryFileName);
-                if (!string.IsNullOrEmpty(newEntryFileName))
-                    ZipFileTool.Extract(entry, destExtractFilePath);
+                if (fileEntries.Count == 0)
+                    throw new InvalidDataException("The selected SMAPI ZIP is empty.");
+
+                // The official Android package currently has one wrapper folder.
+                // Detect it from the archive instead of assuming every entry has a parent path.
+                var normalized = new List<(ZipArchiveEntry Entry, string[] Parts)>();
+                foreach (var entry in fileEntries)
+                {
+                    var name = entry.FullName.Replace('\\', '/');
+                    if (name.StartsWith("/", StringComparison.Ordinal) || name.Contains(":"))
+                        throw new InvalidDataException("The SMAPI ZIP contains an unsafe absolute path: " + entry.FullName);
+
+                    var parts = name.Split('/');
+                    if (parts.Any(part => string.IsNullOrWhiteSpace(part) || part == "." || part == ".."))
+                        throw new InvalidDataException("The SMAPI ZIP contains an unsafe path: " + entry.FullName);
+
+                    normalized.Add((entry, parts));
+                }
+
+                var firstSegment = normalized[0].Parts[0];
+                var hasSingleRoot = normalized.All(item =>
+                    item.Parts.Length > 1 &&
+                    string.Equals(item.Parts[0], firstSegment, StringComparison.Ordinal));
+
+                var extractedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var item in normalized)
+                {
+                    var relativeParts = hasSingleRoot ? item.Parts.Skip(1).ToArray() : item.Parts;
+                    if (relativeParts.Length == 0)
+                        continue;
+
+                    var relativePath = Path.Combine(relativeParts);
+                    var destination = Path.GetFullPath(Path.Combine(stagingDir, relativePath));
+                    var stagingRoot = Path.GetFullPath(stagingDir) + Path.DirectorySeparatorChar;
+                    if (!destination.StartsWith(stagingRoot, StringComparison.Ordinal))
+                        throw new InvalidDataException("The SMAPI ZIP entry escapes the installation directory: " + item.Entry.FullName);
+
+                    if (!extractedPaths.Add(relativePath))
+                        throw new InvalidDataException("The SMAPI ZIP contains duplicate file paths: " + relativePath);
+
+                    var parent = Path.GetDirectoryName(destination);
+                    if (!string.IsNullOrEmpty(parent))
+                        Directory.CreateDirectory(parent);
+
+                    using var source = item.Entry.Open();
+                    using var target = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None);
+                    source.CopyTo(target);
+                }
             }
+
+            var stagedMainAssembly = Path.Combine(stagingDir, StardewModdingAPIFileName);
+            var stagedInternal = Path.Combine(stagingDir, "smapi-internal");
+            foreach (var requiredFile in new[]
+            {
+                stagedMainAssembly,
+                Path.Combine(stagedInternal, "config.json"),
+                Path.Combine(stagedInternal, "blacklist.json"),
+                Path.Combine(stagedInternal, "metadata.json"),
+                Path.Combine(stagedInternal, "i18n", "default.json")
+            })
+            {
+                if (!File.Exists(requiredFile))
+                    throw new InvalidDataException("The SMAPI ZIP is incomplete. Missing: " + Path.GetFileName(requiredFile));
+            }
+
+            var stagedVersion = ReadVersionFromAssembly(stagedMainAssembly);
+            var stagedBuildCode = ReadBuildCodeFromAssembly(stagedMainAssembly);
+            if (stagedVersion <= new Version(0, 0, 0, 0) || stagedBuildCode <= 0)
+                throw new InvalidDataException("SMAPI version/build metadata is missing or invalid in the selected ZIP.");
+
+            // Only replace the installed files after the complete archive has passed validation.
+            var installedInternal = Path.Combine(stardewDir, "smapi-internal");
+            if (Directory.Exists(installedInternal))
+                Directory.Delete(installedInternal, true);
+
+            foreach (var sourceFile in Directory.GetFiles(stagingDir, "*", SearchOption.AllDirectories))
+            {
+                var relative = Path.GetRelativePath(stagingDir, sourceFile);
+                var destination = Path.Combine(stardewDir, relative);
+                var parent = Path.GetDirectoryName(destination);
+                if (!string.IsNullOrEmpty(parent))
+                    Directory.CreateDirectory(parent);
+                File.Copy(sourceFile, destination, true);
+            }
+
+            if (!IsInstalled)
+                throw new InvalidDataException("SMAPI files were copied, but the installed DLL failed final verification.");
+
+            Console.WriteLine($"Verified SMAPI {GetCurrentVersion()} build {GetBuildCode()} at {GetInstallFilePath}");
         }
+        finally
+        {
+            if (Directory.Exists(stagingDir))
+                Directory.Delete(stagingDir, true);
+        }
+    }
 
-        if (!File.Exists(GetInstallFilePath))
-            throw new InvalidDataException("SMAPI DLL was not copied into the game's assembly directory.");
+    static long ReadBuildCodeFromAssembly(string filePath)
+    {
+        using var stream = File.OpenRead(filePath);
+        var assembly = Mono.Cecil.AssemblyDefinition.ReadAssembly(stream);
+        var buildType = assembly.MainModule.Types.Single(t => t.FullName == "StardewModdingAPI.Mobile.SMAPIAndroidBuild");
+        var buildString = buildType.Fields.Single(field => field.Name == "BuildCode").Constant as string;
+        return long.Parse(buildString);
+    }
 
-        var version = GetCurrentVersion();
-        var buildCode = GetBuildCode();
-        if (version <= new Version(0, 0, 0, 0) || buildCode <= 0)
-            throw new InvalidDataException("Version/build metadata could not be read. Installation is not considered successful.");
+    static Version ReadVersionFromAssembly(string filePath)
+    {
+        using var stream = File.OpenRead(filePath);
+        var assembly = Mono.Cecil.AssemblyDefinition.ReadAssembly(stream);
+        var constantsType = assembly.MainModule.Types.Single(t => t.FullName == "StardewModdingAPI.EarlyConstants");
+        var version = constantsType.Fields.Single(field => field.Name == "RawApiVersionForAndroid").Constant as string;
+        return new Version(version);
     }
     public static void UninstallSMAPI()
     {
