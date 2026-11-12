@@ -126,12 +126,19 @@ jobs:
               for line in dependencies.read_text(encoding="utf-8").splitlines()
               if line.strip()
           ]
-          missing = [name for name in names if not (bin_dir / name).is_file()]
+          optional_android = {"System.CodeDom.dll", "System.Management.dll", "VdfConverter.dll"}
+          missing = [name for name in names if not (bin_dir / name).is_file() and name not in optional_android]
           if missing:
-              raise SystemExit("Missing SMAPI package dependencies: " + ", ".join(missing))
+              raise SystemExit("Missing required SMAPI package dependencies: " + ", ".join(missing))
+
+          skipped = [name for name in names if not (bin_dir / name).is_file()]
+          if skipped:
+              print("Omitting platform-specific dependencies absent from Android build: " + ", ".join(skipped))
 
           for name in names:
-              shutil.copy2(bin_dir / name, stage / name)
+              source = bin_dir / name
+              if source.is_file():
+                  shutil.copy2(source, stage / name)
 
           internal = stage / "smapi-internal"
           internal.mkdir()
