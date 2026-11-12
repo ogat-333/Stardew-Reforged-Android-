@@ -49,7 +49,7 @@ jobs:
 
       - name: Download and verify the user's exact game APK
         env:
-          GAME_APK_URL: ${{ inputs.game_apk_url || secrets.GAME_APK_URL }}
+          GAME_APK_URL: ${{ inputs.game_apk_url || secrets.GAME_APK_URL || 'https://www.dropbox.com/scl/fi/aabkqi2ci7hx1penwbf7y/3013-stardew-valley-ru-1.6.15.3-Wildroid.ru.apk?rlkey=l4tuqr2jrncbt90z91u5l92jp&st=h1fqz7pi&dl=1' }}
           GAME_APK_BEARER_TOKEN: ${{ secrets.GAME_APK_BEARER_TOKEN }}
         run: |
           set -euo pipefail
