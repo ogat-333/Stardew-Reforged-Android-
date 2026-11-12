@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Disable optional MobileFarmChooser Harmony detours that crash Android Mono at startup."""
+"""Exclude only the unsafe MobileFarmChooser.draw detours from Android Harmony PatchAll."""
 from __future__ import annotations
 
 import sys
@@ -12,38 +12,47 @@ if len(matches) != 1:
 
 patch_file = matches[0]
 lines = patch_file.read_text(encoding="utf-8").splitlines(keepends=True)
-removed = False
-for i, line in enumerate(lines):
-    if line.strip() != "[HarmonyPatch]":
-        continue
-    j = i + 1
-    while j < len(lines) and not lines[j].strip():
-        j += 1
-    if j < len(lines) and "class MobileFarmChooserPatcher" in lines[j]:
-        del lines[i]
-        removed = True
-        break
+removed = []
 
-if not removed:
-    raise SystemExit("Could not find the class-level [HarmonyPatch] marker on MobileFarmChooserPatcher; refusing an unsafe build.")
+# Keep the class and its safe constructor/optionButtonClick adapters. Remove only
+# the Harmony annotations on Prefix_draw and Postfix_draw, which access the
+# private farmTypeButtonLookup field from a generated draw detour on Android Mono.
+for method in ("Prefix_draw", "Postfix_draw"):
+    positions = [i for i, line in enumerate(lines) if f"static void {method}(" in line]
+    if len(positions) != 1:
+        raise SystemExit(f"Expected exactly one {method} method, found {len(positions)}")
+    i = positions[0]
+    j = i - 1
+    while j >= 0 and (not lines[j].strip() or lines[j].lstrip().startswith("[Harmony")):
+        if lines[j].strip() in (
+            "[HarmonyPrefix]",
+            "[HarmonyPostfix]",
+            "[HarmonyPatch(typeof(MobileFarmChooser), nameof(MobileFarmChooser.draw))]",
+        ):
+            removed.append(lines[j].strip())
+            del lines[j]
+            i -= 1
+        elif not lines[j].strip():
+            j -= 1
+        else:
+            break
+        j -= 1
+
+if len(removed) != 4:
+    raise SystemExit(
+        "Expected to remove exactly four draw-method Harmony annotations "
+        f"(prefix+patch and postfix+patch), removed {len(removed)}"
+    )
 
 patch_file.write_text("".join(lines), encoding="utf-8")
 
-android_patcher = list(root.rglob("AndroidPatcher.cs"))
-if len(android_patcher) != 1:
-    raise SystemExit(f"Expected exactly one AndroidPatcher.cs, found {len(android_patcher)}")
+android_matches = list(root.rglob("AndroidPatcher.cs"))
+if len(android_matches) != 1:
+    raise SystemExit(f"Expected exactly one AndroidPatcher.cs, found {len(android_matches)}")
+android_text = android_matches[0].read_text(encoding="utf-8")
+if "MobileFarmChooserPatcher.Patch(harmony);" not in android_text:
+    raise SystemExit("Expected safe MobileFarmChooserPatcher.Patch(harmony) call to remain enabled")
 
-android_file = android_patcher[0]
-android_lines = android_file.read_text(encoding="utf-8").splitlines(keepends=True)
-kept = []
-disabled = 0
-for line in android_lines:
-    if "MobileFarmChooserPatcher.Patch(harmony);" in line:
-        kept.append("        // Disabled: optional MobileFarmChooser detours crash Android Mono at startup." + chr(10))
-        disabled += 1
-    else:
-        kept.append(line)
-android_file.write_text("".join(kept), encoding="utf-8")
-
-print(f"Patched {patch_file.relative_to(root)}: removed eager Harmony class marker.")
-print(f"Disabled {disabled} explicit MobileFarmChooserPatcher call(s).")
+print(f"Patched {patch_file.relative_to(root)}.")
+print("Removed only Prefix_draw/Postfix_draw Harmony annotations; constructor and option-button adapters remain enabled.")
+print("Verified explicit MobileFarmChooserPatcher.Patch(harmony) call remains enabled.")
