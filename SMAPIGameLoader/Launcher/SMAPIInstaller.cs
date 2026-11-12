@@ -246,7 +246,7 @@ internal static class SMAPIInstaller
                         Directory.CreateDirectory(parent);
 
                     using var source = item.Entry.Open();
-                    using var target = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None);
+                    using var target = new FileStream(destination, System.IO.FileMode.Create, FileAccess.Write, FileShare.None);
                     source.CopyTo(target);
                 }
             }
