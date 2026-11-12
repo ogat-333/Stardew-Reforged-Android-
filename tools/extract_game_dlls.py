@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract the three build-time Stardew Valley assemblies from a .NET 9 Android APK.
+"""Extract the game and SMAPI build-time reference assemblies from a .NET 9 Android APK.
 
 The APK and extracted proprietary game assemblies are kept in the runner's temp
 directory and are never committed or uploaded as workflow artifacts.
@@ -21,6 +21,9 @@ REQUIRED = {
     "MonoGame.Framework.dll",
     "StardewValley.dll",
     "StardewValley.GameData.dll",
+    "xTile.dll",
+    "BmFont.dll",
+    "Lidgren.Network.dll",
 }
 
 
@@ -139,7 +142,7 @@ def main() -> None:
         fail("The supplied file is not a valid APK/ZIP archive.")
 
     extract_assemblies(payload, args.output)
-    print("All three required game assemblies were extracted successfully.")
+    print(f"All {len(REQUIRED)} game/SMAPI reference assemblies were extracted successfully.")
 
 
 if __name__ == "__main__":
