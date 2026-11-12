@@ -26,6 +26,10 @@ jobs:
           ref: develop
           path: SMAPI-Android-1.6-temp
 
+      - name: Apply Android Harmony startup compatibility patch
+        run: |
+          python3 tools/patch_android_smapi.py "$GITHUB_WORKSPACE/SMAPI-Android-1.6-temp"
+
       - name: Install .NET 9 and JDK 17
         uses: actions/setup-dotnet@v4
         with:
