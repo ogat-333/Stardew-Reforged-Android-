@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Keep safe MobileFarmChooser adapters, but exclude unsafe draw detours from Harmony PatchAll."""
+"""Remove unsafe MobileFarmChooser.draw Harmony detours from the Android build."""
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -11,76 +12,121 @@ if len(matches) != 1:
     raise SystemExit(f"Expected exactly one MobileFarmChooserPatcher.cs, found {len(matches)}")
 
 patch_file = matches[0]
-lines = patch_file.read_text(encoding="utf-8").splitlines(keepends=True)
+source = patch_file.read_text(encoding="utf-8")
 
-# Remove the class-level marker so PatchAll only discovers the remaining
-# explicitly annotated receiveLeftClick patch, not every patch in this class.
-class_positions = [
-    i for i, line in enumerate(lines)
-    if "internal static class MobileFarmChooserPatcher" in line
-]
-if len(class_positions) != 1:
-    raise SystemExit(f"Expected exactly one patcher class, found {len(class_positions)}")
+# PatchAll discovers this class through Prefix_receiveLeftClick's method-level
+# attributes. It must not also be treated as a class-wide patch container.
+class_match = re.search(
+    r"(?m)^[ \t]*internal static class MobileFarmChooserPatcher\b",
+    source,
+)
+if not class_match or len(re.findall(
+    r"(?m)^[ \t]*internal static class MobileFarmChooserPatcher\b", source
+)) != 1:
+    raise SystemExit("Expected exactly one MobileFarmChooserPatcher class")
 
-class_i = class_positions[0]
-j = class_i - 1
-while j >= 0 and not lines[j].strip():
-    j -= 1
-if j < 0 or lines[j].strip() != "[HarmonyPatch]":
-    raise SystemExit("Expected class-level [HarmonyPatch] immediately before MobileFarmChooserPatcher")
-del lines[j]
-removed_class_marker = True
+before_class = source[:class_match.start()]
+marker = re.search(r"(?m)^[ \t]*\[HarmonyPatch\][ \t]*\r?\n", before_class)
+if not marker:
+    raise SystemExit("Expected class-level [HarmonyPatch] marker")
+source = source[:marker.start()] + source[marker.end():]
 
-# Remove only the method-level Harmony attributes from Prefix_draw/Postfix_draw.
-draw_annotations = {
-    "[HarmonyPrefix]",
-    "[HarmonyPostfix]",
-    "[HarmonyPatch(typeof(MobileFarmChooser), nameof(MobileFarmChooser.draw))]",
-}
-removed_draw = []
-for method in ("Prefix_draw", "Postfix_draw"):
-    positions = [i for i, line in enumerate(lines) if f"static void {method}(" in line]
-    if len(positions) != 1:
-        raise SystemExit(f"Expected exactly one {method} method, found {len(positions)}")
-    i = positions[0]
-    j = i - 1
-    while j >= 0:
-        stripped = lines[j].strip()
-        if not stripped:
-            j -= 1
-            continue
-        if stripped in draw_annotations:
-            removed_draw.append(stripped)
-            del lines[j]
-            i -= 1
-            j -= 1
-            continue
-        break
-
-if len(removed_draw) != 4:
-    raise SystemExit(
-        "Expected four draw annotations (prefix+patch and postfix+patch), "
-        f"removed {len(removed_draw)}"
+def remove_method(text: str, method_name: str) -> str:
+    pattern = re.compile(
+        rf"(?m)^[ \t]*static[ \t]+void[ \t]+{re.escape(method_name)}[ \t]*\("
     )
+    matches = list(pattern.finditer(text))
+    if len(matches) != 1:
+        raise SystemExit(
+            f"Expected exactly one {method_name} method, found {len(matches)}"
+        )
 
-patched_text = "".join(lines)
-if "[HarmonyPatch]" in patched_text.split("internal static class MobileFarmChooserPatcher")[0]:
+    match = matches[0]
+    opening = text.find("{", match.end())
+    if opening < 0:
+        raise SystemExit(f"Couldn't find the body of {method_name}")
+
+    # These two known methods contain ordinary C# blocks (no brace characters
+    # inside string literals), so balanced-brace scanning removes the complete
+    # method body including nested if blocks.
+    depth = 0
+    closing = None
+    for index in range(opening, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                closing = index
+                break
+    if closing is None:
+        raise SystemExit(f"Unbalanced braces while removing {method_name}")
+
+    # Also remove the method's Harmony attributes and its immediately attached
+    # explanatory comments, while leaving the surrounding class intact.
+    remove_start = text.rfind("\n", 0, match.start()) + 1
+    cursor = remove_start
+    while cursor > 0:
+        previous_end = cursor - 1
+        previous_start = text.rfind("\n", 0, previous_end) + 1
+        line = text[previous_start:previous_end].strip()
+        if (
+            not line
+            or line.startswith("[Harmony")
+            or line.startswith("//")
+        ):
+            remove_start = previous_start
+            cursor = previous_start
+        else:
+            break
+
+    remove_end = closing + 1
+    while remove_end < len(text) and text[remove_end] in "\r\n":
+        remove_end += 1
+    return text[:remove_start] + text[remove_end:]
+
+
+source = remove_method(source, "Prefix_draw")
+source = remove_method(source, "Postfix_draw")
+
+for forbidden in ("Prefix_draw", "Postfix_draw", "nameof(MobileFarmChooser.draw)"):
+    if forbidden in source:
+        raise SystemExit(f"Unsafe draw patch remains in {patch_file}: {forbidden}")
+
+if re.search(r"(?m)^[ \t]*\[HarmonyPatch\][ \t]*\r?\n[ \t]*internal static class MobileFarmChooserPatcher", source):
     raise SystemExit("Class-level [HarmonyPatch] marker was not removed")
-for method in ("Prefix_draw", "Postfix_draw"):
-    i = patched_text.index(f"static void {method}(")
-    prefix = patched_text[max(0, i - 300):i]
-    if any(annotation in prefix for annotation in draw_annotations):
-        raise SystemExit(f"Harmony annotation still attached to {method}")
 
-patch_file.write_text(patched_text, encoding="utf-8")
+if "Prefix_receiveLeftClick" not in source:
+    raise SystemExit("Safe receiveLeftClick compatibility patch was lost")
+
+patch_file.write_text(source, encoding="utf-8")
+
+# Guard against another source file reintroducing the same eager draw detour.
+draw_patch_pattern = re.compile(
+    r"\[HarmonyPatch\s*\(\s*typeof\s*\(\s*MobileFarmChooser\s*\)\s*,"
+    r"\s*(?:nameof\s*\(\s*MobileFarmChooser\.draw\s*\)|\"draw\")\s*\)\s*\]",
+    re.MULTILINE,
+)
+other_draw_patches = []
+for cs_file in root.rglob("*.cs"):
+    text = cs_file.read_text(encoding="utf-8")
+    if draw_patch_pattern.search(text):
+        other_draw_patches.append(str(cs_file.relative_to(root)))
+if other_draw_patches:
+    raise SystemExit(
+        "Found additional MobileFarmChooser.draw Harmony patches: "
+        + ", ".join(other_draw_patches)
+    )
 
 android_matches = list(root.rglob("AndroidPatcher.cs"))
 if len(android_matches) != 1:
     raise SystemExit(f"Expected exactly one AndroidPatcher.cs, found {len(android_matches)}")
 android_text = android_matches[0].read_text(encoding="utf-8")
 if "MobileFarmChooserPatcher.Patch(harmony);" not in android_text:
-    raise SystemExit("Expected safe MobileFarmChooserPatcher.Patch(harmony) call to remain enabled")
+    raise SystemExit("Safe explicit MobileFarmChooserPatcher.Patch(harmony) call is missing")
 
 print(f"Patched {patch_file.relative_to(root)}.")
-print("Removed class-level [HarmonyPatch] and all four Prefix_draw/Postfix_draw annotations.")
-print("Kept Prefix_receiveLeftClick discovery and the explicit safe constructor/option-button patches.")
+print("Removed the complete Prefix_draw and Postfix_draw methods and their Harmony attributes.")
+print("Verified class-level Harmony marker is absent and receiveLeftClick remains.")
+print("Verified no other MobileFarmChooser.draw Harmony patch exists in the SMAPI source tree.")
+print("Verified explicit constructor/option-button compatibility patches remain enabled.")
