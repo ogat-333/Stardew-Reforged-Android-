@@ -125,48 +125,11 @@ loop_matches = list(root.rglob("AndroidGameLoopManager.cs"))
 if len(loop_matches) != 1:
     raise SystemExit(f"Expected exactly one AndroidGameLoopManager.cs, found {len(loop_matches)}")
 loop_text = loop_matches[0].read_text(encoding="utf-8")
-if len(re.findall(r'(?m)^\\s*\\[HarmonyPatch\\(typeof\\(Game\\), "DoUpdate"\\)\\]\\s*
-if len(android_matches) != 1:
-    raise SystemExit(f"Expected exactly one AndroidPatcher.cs, found {len(android_matches)}")
-android_text = android_matches[0].read_text(encoding="utf-8")
-# The constructor patch also accesses private game fields and crashes on 1.6.15.3.
-# Disable the explicit compatibility patch call; leave unrelated Android patches intact.
-call_pattern = re.compile(
-    r"(?m)^[ \t]*MobileFarmChooserPatcher\.Patch\(harmony\);[ \t]*\r?\n"
-)
-if len(call_pattern.findall(android_text)) != 1:
-    raise SystemExit("Expected exactly one explicit MobileFarmChooserPatcher.Patch(harmony) call")
-android_text = call_pattern.sub("", android_text)
-android_matches[0].write_text(android_text, encoding="utf-8")
-if "MobileFarmChooserPatcher.Patch(harmony);" in android_text:
-    raise SystemExit("Unsafe MobileFarmChooserPatcher call remains enabled")
-
-print(f"Patched {patch_file.relative_to(root)}.")
-print("Removed the complete Prefix_draw and Postfix_draw methods and their Harmony attributes.")
-print("Verified class-level Harmony marker is absent and receiveLeftClick remains.")
-print("Verified no other MobileFarmChooser.draw Harmony patch exists in the SMAPI source tree.")
-print("Removed AndroidGameLoopManager.Postfix_DoUpdate and its Game.DoUpdate Harmony patch.")
-print("Verified unsafe MobileFarmChooserPatcher constructor/option-button patch call is disabled.")
-
-# The upstream post-build hook is a Windows batch script (ADB deployment).
-# Disable that local-device deployment hook on Linux CI while keeping it on Windows.
-csproj = root / "src/SMAPI/SMAPI.csproj"
-if not csproj.is_file():
-    raise SystemExit(f"Expected SMAPI project file at {csproj}")
-csproj_text = csproj.read_text(encoding="utf-8-sig")
-target_open = '<Target Name="PostBuild" AfterTargets="PostBuildEvent">'
-if csproj_text.count(target_open) != 1:
-    raise SystemExit("Expected exactly one SMAPI PostBuild target")
-csproj_text = csproj_text.replace(
-    target_open,
-    '<Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="\'$(OS)\' == \'Windows_NT\'">',
-)
-csproj.write_text(csproj_text, encoding="utf-8")
-print("Disabled the Windows-only ADB post-build hook for Linux CI.")
-, loop_text)) != 1:
+patch_marker = '[HarmonyPatch(typeof(Game), "DoUpdate")]'
+if loop_text.count(patch_marker) != 1:
     raise SystemExit("Expected exactly one Game.DoUpdate Harmony patch")
 loop_text = remove_method(loop_text, "Postfix_DoUpdate")
-if "Postfix_DoUpdate" in loop_text or re.search(r'\\[HarmonyPatch\\(typeof\\(Game\\), "DoUpdate"\\)\\]', loop_text):
+if "Postfix_DoUpdate" in loop_text or patch_marker in loop_text:
     raise SystemExit("Unsafe Game.DoUpdate Harmony patch remains enabled")
 loop_matches[0].write_text(loop_text, encoding="utf-8")
 
