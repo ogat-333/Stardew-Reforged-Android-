@@ -124,27 +124,27 @@ internal static class SMAPIInstaller
 
     static bool IsSMAPIZipFromPickFile(FileResult pick)
     {
-        var fileName = pick.FileName;
-
-        if (fileName.EndsWith(".zip") is false)
+        if (pick == null || !string.Equals(Path.GetExtension(pick.FileName), ".zip", StringComparison.OrdinalIgnoreCase))
             return false;
 
-        if (fileName.Contains("SMAPI") && fileName.Contains("Android"))
+        try
         {
-            //check file size should less than PC
-            //on PC SMAPI-4.1.10-installer-for-developers.zip
-            //file size 40mb
-
-            //on Android SMAPI-4.1.10.2-(1735397682).zip
-            //file size 1.5mb
             var fileInfo = new FileInfo(pick.FullPath);
+            // Android SMAPI packages are small. Reject unrelated large ZIP files.
+            if (!fileInfo.Exists || fileInfo.Length <= 0 || FileTool.ConvertBytesToMB(fileInfo.Length) > 10)
+                return false;
 
-            //less than 30mb
-            return FileTool.ConvertBytesToMB(fileInfo.Length) <= 10;
+            // Don't trust the picked filename: Android's document picker may rename files.
+            // Validate the ZIP structure and locate the main assembly by entry name.
+            using var archive = ZipFile.OpenRead(pick.FullPath);
+            return archive.Entries.Any(entry =>
+                string.Equals(Path.GetFileName(entry.FullName.Replace('\\', '/')),
+                    StardewModdingAPIFileName, StringComparison.OrdinalIgnoreCase));
         }
-
-
-        return false;
+        catch
+        {
+            return false;
+        }
     }
 
     public static Action OnInstalledSMAPI;
